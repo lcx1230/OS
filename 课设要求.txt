@@ -1,0 +1,5 @@
+在Linux系统下实现一个简单的定时器，使用fork（）函数创建一个进程，并使用编写的定时器统计进程运行时间。
+要求：
+sleep（）和usleep（）
+
+Vmware+centos

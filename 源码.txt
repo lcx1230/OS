@@ -1,0 +1,177 @@
+ #include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/ipc.h>
+#include <sys/shm.h> 
+
+#include<signal.h>
+#include <stdlib.h>
+#include<time.h>
+ #include<sys/time.h>
+ #include <fcntl.h>
+#include <limits.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+ 
+
+static void par_sig(int signo);    /*父进程的信号处理函数*/
+static void c1_sig(int signo);      /*子进程 1 的信号处理函数*/
+
+ 
+/*用于分别记录父，子 1 进程 real time 过的总秒数*/
+static long p_realt_secs=0,c1_realt_secs=0;     
+/*用于分别记录父，子 1进程 virtual time 过的总秒数*/
+static long p_virtt_secs=0, c1_virtt_secs=0;
+/*用于分别记录父，子 1 进程 proft time 过的总秒数*/
+static long p_proft_secs=0,c1_proft_secs=0;     
+
+/*用于分别取出父，子 1 进程的 real timer 的值*/
+static struct itimerval p_realt,c1_realt;     
+/*用于分别取出父，子 1，子 2 进程的 virtual timer 的值*/ 
+static struct itimerval p_virtt,c1_virtt;     
+/*用于分别取出父，子 1进程的 proft timer 的值*/
+static struct itimerval p_proft,c1_proft;     
+ 
+int main()
+{
+    long unsigned fib=0;
+    pid_t pid1,pid2;
+    unsigned int fibarg=39;
+    int status;
+    struct itimerval v;
+    long moresec,moremsec,t1,t2;
+    pid1=fork();
+    if(pid1==0)
+    {
+        /*设置子进程 1 的信号处理函数和定时器初值*/
+        signal(SIGALRM,c1_sig);
+        signal(SIGVTALRM,c1_sig);
+        signal(SIGPROF,c1_sig);
+        v.it_interval.tv_sec=10;
+        v.it_interval.tv_usec=0;
+        v.it_value.tv_sec=10;
+        v.it_value.tv_usec=0;
+        setitimer(ITIMER_REAL,&v,NULL);
+        setitimer(ITIMER_VIRTUAL,&v,NULL);
+        setitimer(ITIMER_PROF,&v,NULL);
+        
+		/*
+		operation 
+		在此处可以添加任意操作，可以统计此进程的时间
+		*/
+	
+
+        /*取出子进程 1 的定时器值*/
+        getitimer(ITIMER_PROF,&c1_proft);     
+        getitimer(ITIMER_REAL,&c1_realt);
+        getitimer(ITIMER_VIRTUAL,&c1_virtt);
+		/*通过定时器的当前值和各信号发出的次数计算子进程 1 总共用的 real time,cpu
+		time,user time 和 kernel time。moresec 和 moremsec 指根据定时器的当前值计算
+		出的自上次信号发出时过去的 real time,cpu time,user time 和 kernel time。计算
+		kernel time 时,moresec 和 moremsec 为 kernel time 的实际秒数+毫秒数*/
+        moresec=9-c1_realt.it_value.tv_sec;
+		moremsec= (1000000-c1_realt.it_value.tv_usec)/1000;
+        printf("Child 1 fib=%ld , real time=%ld sec,%ldmsec\n",fib,c1_realt_secs+moresec,moremsec);
+        moresec=9-c1_proft.it_value.tv_sec;
+        moremsec=(1000000-c1_proft.it_value.tv_usec)/1000;
+        printf("Child 1 fib=%ld , cpu time=%ld sec,%ldmsec\n",fib,c1_proft_secs+moresec,moremsec);
+        moresec=9-c1_virtt.it_value.tv_sec;
+		moremsec=(1000000-c1_virtt.it_value.tv_usec)/1000;
+        printf("Child 1 fib=%ld , user time=%ld sec,%ldmsec\n",fib,c1_virtt_secs+moresec,moremsec);                                         
+		t1=(9-c1_proft.it_value.tv_sec)*1000+(1000000-c1_proft.it_value.tv_usec)/1000+c1_proft_secs*10000;
+		t2=(9-c1_virtt.it_value.tv_sec)*1000+(1000000-c1_virtt.it_value.tv_usec)/1000+c1_virtt_secs*10000;
+        moresec=(t1-t2)/1000;moremsec=(t1-t2)%1000;
+        printf("Child 1 fib=%ld , kernel time=%ld sec,%ld msec\n",fib,moresec,moremsec);
+        fflush(stdout);
+        exit(0);             
+    }
+    else
+    {
+
+            /*设置父进程的信号处理函数和定时器初值*/
+            signal(SIGALRM,par_sig);
+            signal(SIGVTALRM,par_sig);
+            signal(SIGPROF,par_sig);
+            v.it_interval.tv_sec=10;
+            v.it_interval.tv_usec=0;
+            v.it_value.tv_sec=10;
+            v.it_value.tv_usec=0;
+            setitimer(ITIMER_REAL,&v,NULL);
+            setitimer(ITIMER_VIRTUAL,&v,NULL);
+            setitimer(ITIMER_PROF,&v,NULL);
+            
+			/*
+			operation 
+			在此处可以添加任意操作，可以统计此进程的时间
+			*/
+
+            /*取出父进程的定时器值*/
+            getitimer(ITIMER_PROF,&p_proft);
+            getitimer(ITIMER_REAL,&p_realt);
+            getitimer(ITIMER_VIRTUAL,&p_virtt);
+			/*通过定时器的当前值和各信号发出的次数计算子进程 1 总共用的
+			real time,cpu time,user time 和 kernel time。moresec 和 moremsec 指根据
+			定时器的当前值计算出的自上次信号发出时过去的 real time,cpu
+			time,user time 和 kernel time。计算 kernel time 时,moresec 和 moremsec
+			为 kernel time 的实际秒数+毫秒数*/
+            moresec=9-p_realt.it_value.tv_sec;
+			moremsec=(1000000-p_realt.it_value.tv_usec)/1000;
+            printf("Parent fib=%ld , real time=%ld sec,%ldmsec\n",fib,p_realt_secs+moresec,moremsec);
+            moresec=9-p_proft.it_value.tv_sec;
+			moremsec=(1000000-p_proft.it_value.tv_usec)/1000;
+            printf("Parent fib=%ld , cpu time=%ld sec,%ldmsec\n",fib,p_proft_secs+moresec,moremsec);
+            moresec=9-p_virtt.it_value.tv_sec;
+			moremsec=(1000000-p_virtt.it_value.tv_usec)/1000;
+            printf("Parent fib=%ld , user time=%ld sec,%ldmsec\n",fib,p_virtt_secs+moresec,moremsec);
+			t1=(9-p_proft.it_value.tv_sec)*1000+(1000000-p_proft.it_value.tv_usec)/1000+p_proft_secs*10000;
+    		 t2=(9-p_virtt.it_value.tv_sec)*1000+(1000000-p_virtt.it_value.tv_usec)/1000+p_virtt_secs*10000;
+            moresec=(t1-t2)/1000;
+			moremsec=(t1-t2)%1000;
+            printf("Parent fib=%ld , kernel time=%ld sec,%ldmsec\n",fib,moresec,moremsec);
+            fflush(stdout);
+            waitpid(0,&status,0);
+            waitpid(0,&status,0);
+            exit(0);
+        
+                    printf("this line should never be printed\n");
+    }
+}
+ 
+
+ 
+/*父进程信号处理函数；每个 timer 过 10 秒减为 0，激活处理函数一次，相应的计数器加 10*/
+static void par_sig(int signo)
+{
+ 
+                switch(signo)
+                {
+                                case SIGALRM:
+                                                p_realt_secs+=10;
+                                                break;
+                                case SIGVTALRM:
+                                                p_virtt_secs+=10;
+                                                break;
+                                case SIGPROF:
+                                                p_proft_secs+=10;
+                                                break;
+                }
+}
+ 
+/*子进程 1 的信号处理函数，功能与父进程的信号处理函数相同*/
+static void c1_sig(int signo)
+{
+ 
+                switch(signo)
+                {                                 case SIGALRM:
+                                                c1_realt_secs+=10;
+                                                break;
+                                case SIGVTALRM:
+                                                c1_virtt_secs+=10;
+                                                break;
+                                case SIGPROF:
+                                                c1_proft_secs+=10;
+                                                break;
+                }
+}
+
+
